@@ -1,0 +1,38 @@
+spring:
+  profiles.active: dev
+  mvc:
+    favicon:
+      enabled: false
+logging:
+  level:
+    ROOT: debug
+    
+---
+spring:
+  profiles: prod
+  redis:
+    host: localhost
+    port: 6379
+    password:  
+---
+spring:
+  profiles: dev
+  redis:
+    host: localhost
+    port: 6379
+    password:  
+---
+server:
+  error:
+    whitelabel:
+      enabled: true
+  session:
+    cookie:
+      max-age: 7200
+    timeout: 7200
+spring:
+  thymeleaf:
+    cache: false
+  mvc:
+    static-path-pattern: /static/**
+
