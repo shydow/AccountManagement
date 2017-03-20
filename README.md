@@ -9,6 +9,7 @@ fast and simple account Management service for multi-tenant application
 ### 签名和验签
 签名和验签采用RSA的公私钥，使用私钥签名，使用公钥验签。设置am的公私钥对、tenant的公私钥对（平台仅负责生成，不保存tenant私钥）
 todo: 考虑后期增加对EC、HMAC等的支持。
+
 ### 加密
 加密采用AES的对称加密算法，由平台生成加密密钥，在传输过程中使用该加密密钥进行加密处理
 todo：考虑增加对RSA的支持
