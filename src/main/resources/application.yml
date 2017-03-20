@@ -10,29 +10,50 @@ logging:
 ---
 spring:
   profiles: prod
-  redis:
-    host: localhost
-    port: 6379
-    password:  
+  datasource:
+    url: jdbc:mysql://tangpian.com:3306/am?allowMultiQueries=true&autoReconnect=true&useSSL=false
+    username: root
+    password: password
+  jpa:
+    show-sql: true
+    hibernate:
+      ddl-auto: update
+    database-platform: org.hibernate.dialect.MySQL5Dialect
 ---
 spring:
   profiles: dev
-  redis:
-    host: localhost
-    port: 6379
-    password:  
+  datasource:
+    url: jdbc:h2:/tmp/am;MODE=MySQL;AUTO_SERVER=TRUE
+    username: sa
+    password: 
+  jpa:
+    show-sql: true
+    generate-ddl: true
+    hibernate:
+      ddl-auto: create-drop
+    database-platform: org.hibernate.dialect.MySQL5Dialect
 ---
 server:
   error:
     whitelabel:
       enabled: true
-  session:
-    cookie:
-      max-age: 7200
-    timeout: 7200
 spring:
   thymeleaf:
     cache: false
   mvc:
     static-path-pattern: /static/**
-
+    
+tangpian:
+  am:
+    rsa:
+      length: 1024
+    aes:
+      length: 512
+    dh:
+      length: 512
+    token:
+      algorithm:
+        signature: RSA
+        encryption: RSA
+      isDymanicSecretKey: true
+    
