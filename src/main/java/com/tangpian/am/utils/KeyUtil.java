@@ -39,6 +39,12 @@ public class KeyUtil {
 		generator.init(keySize);
 		return generator.generateKey();
 	}
+	
+	public static KeyPair generateEcKeyPair(int keySize) throws NoSuchAlgorithmException {
+		KeyPairGenerator generator = KeyPairGenerator.getInstance("EC");
+		generator.initialize(keySize);
+		return generator.generateKeyPair();
+	}
 
 	public static KeyPair generateSourceKeyPair(int keySize) throws NoSuchAlgorithmException {
 		KeyPairGenerator generator = KeyPairGenerator.getInstance("DH");

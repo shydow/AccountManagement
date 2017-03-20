@@ -24,27 +24,10 @@ public class TokenUtilTest {
 
 	public static void tokenProcess()
 			throws NoSuchAlgorithmException, InvalidKeySpecException, JOSEException, ParseException {
-		TokenSpec tokenSpec;
+		TokenSpec tokenSpec = new TokenSpec(TokenSpec.SIGNATURE_ALGORITHM_RSA, TokenSpec.ENCRYPT_ALGORITHM_AES, false);
 		Map<String, Object> data;
 		String token;
-
-		tokenSpec = new TokenSpec();
-		KeyPair platformKeyPair = KeyUtil.generateRSAKeyPair(512);
-		KeyPair tenantKeyPair = KeyUtil.generateRSAKeyPair(512);
-		Key key = KeyUtil.generateAESKey(128);
-
-		String secretKey = KeyUtil.keyBytes2String(key.getEncoded());
-		tokenSpec.setEncryption(true);
-		tokenSpec.setDymanicSercetKey(false);
-		tokenSpec.setEncryptAlgorithm(TokenSpec.ENCRYPT_ALGORITHM_AES);
-		tokenSpec.setSignatureAlgorithm(TokenSpec.SIGNATURE_ALGORITHM_RSA);
-		tokenSpec.setAesSercetKey(secretKey);
-		tokenSpec.setPlatformRsaPrivateKey(KeyUtil.keyBytes2String(platformKeyPair.getPrivate().getEncoded()));
-		tokenSpec.setPlatformRsaPublicKey(KeyUtil.keyBytes2String(platformKeyPair.getPublic().getEncoded()));
-
-		tokenSpec.setTenantRsaPrivateKey(KeyUtil.keyBytes2String(tenantKeyPair.getPrivate().getEncoded()));
-		tokenSpec.setTenantRsaPublicKey(KeyUtil.keyBytes2String(tenantKeyPair.getPublic().getEncoded()));
-
+		
 		data = new HashMap<>();
 		data.put("token", "1234");
 
@@ -54,24 +37,16 @@ public class TokenUtilTest {
 		Date startTime = new Date();
 		for (int i = 0; i < 10000; i++) {
 			
-			token = TokenUtil.generateWithoutDymanicKey(KeyUtil.keyBytes2String(platformKeyPair.getPrivate().getEncoded()),
-					secretKey, data);
+			token = TokenUtil.generateWithoutDymanicKey(tokenSpec.getSignatureKey(), tokenSpec.getEncryptKey(), data);
 			System.out.println("*****" + token);
 
 			Map<String, Object> result = TokenUtil.parse(token,
-					KeyUtil.keyBytes2String(platformKeyPair.getPublic().getEncoded()), secretKey);
+					tokenSpec.getPlatformRsaPublicKey(), tokenSpec.getAesSercetKey());
 			System.out.println("*****" + result.get("token"));
 			
 		}
 		Date finishTime = new Date();
 		System.out.println(finishTime.getTime() - startTime.getTime());
-		token = TokenUtil.generateWithoutDymanicKey(KeyUtil.keyBytes2String(platformKeyPair.getPrivate().getEncoded()),
-				secretKey, data);
-		System.out.println("*****" + token);
-
-		Map<String, Object> result = TokenUtil.parse(token,
-				KeyUtil.keyBytes2String(platformKeyPair.getPublic().getEncoded()), secretKey);
-		System.out.println("*****" + result.get("token"));
 	}
 
 	public static void codecProcess()

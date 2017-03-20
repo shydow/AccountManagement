@@ -1,19 +1,117 @@
 package com.tangpian.am.model;
 
+import java.security.Key;
+import java.security.KeyPair;
+import java.security.NoSuchAlgorithmException;
+
 import javax.persistence.Embeddable;
 import javax.persistence.Transient;
 
-import com.tangpian.am.exception.InvalidEncryptAlgorithmException;
-import com.tangpian.am.exception.InvalidSignatureAlgorithmException;
+import com.tangpian.am.exception.InvalidKeyAlgorithmException;
 import com.tangpian.am.utils.KeyUtil;
 
 @Embeddable
 public class TokenSpec {
 	public static final String ENCRYPT_ALGORITHM_AES = "AES";
-	public static final String ENCRYPT_ALGORITHM_RSA = "RSA";
+//	public static final String ENCRYPT_ALGORITHM_RSA = "RSA";
 	public static final String SIGNATURE_ALGORITHM_HMAC = "HMAC";
 	public static final String SIGNATURE_ALGORITHM_EC = "EC";
 	public static final String SIGNATURE_ALGORITHM_RSA = "RSA";
+
+	private static final int DEFAULT_AES_KEY_SIZE = 128;
+	private static final int DEFAULT_RSA_KEY_SIZE = 1024;
+	private static final int DEFAULT_EC_KEY_SIZE = 512;
+	private static final int DEFAULT_DH_KEY_SIZE = 256;
+
+	/**
+	 * TokenSpec 用于管理token相关的
+	 * @param signatureAlgorithm
+	 * @param encryptAlgorithm
+	 */
+	public TokenSpec(String signatureAlgorithm, String encryptAlgorithm) {
+		new TokenSpec(signatureAlgorithm, encryptAlgorithm, false);
+	}
+
+	public TokenSpec(String signatureAlgorithm, String encryptAlgorithm, boolean isDymanicSercetKey) {
+		try {
+			this.isDymanicSercetKey = isDymanicSercetKey;
+			if (isDymanicSercetKey) {
+				initDhKey();
+			}
+			initSignatureKey(signatureAlgorithm);
+			initEncryptKey(encryptAlgorithm);
+		} catch (NoSuchAlgorithmException e) {
+			e.printStackTrace();
+			throw new InvalidKeyAlgorithmException();
+		}
+	}
+
+	private void initEncryptKey(String encryptAlgorithm) throws NoSuchAlgorithmException {
+		this.encryptAlgorithm = encryptAlgorithm;
+		switch (encryptAlgorithm) {
+
+		case ENCRYPT_ALGORITHM_AES:
+			initAesKey();
+			break;
+
+		default:
+			break;
+		}
+	}
+
+	private void initDhKey() throws NoSuchAlgorithmException {
+		KeyPair dhSourceKeyPair = KeyUtil.generateSourceKeyPair(DEFAULT_DH_KEY_SIZE);
+		this.platformDhPrivateKey = KeyUtil.keyBytes2String(dhSourceKeyPair.getPrivate().getEncoded());
+		this.platFormDhPublicKey = KeyUtil.keyBytes2String(dhSourceKeyPair.getPublic().getEncoded());
+	}
+
+	private void initSignatureKey(String signatureAlgorithm) throws NoSuchAlgorithmException {
+
+		this.signatureAlgorithm = signatureAlgorithm;
+		switch (signatureAlgorithm) {
+		case SIGNATURE_ALGORITHM_EC:
+			initEcKey();
+			break;
+
+		case SIGNATURE_ALGORITHM_RSA:
+			initRsaKey();
+			break;
+
+		case SIGNATURE_ALGORITHM_HMAC:
+			initAesKey();
+			break;
+
+		default:
+			throw new InvalidKeyAlgorithmException();
+		}
+	}
+
+	private void initAesKey() throws NoSuchAlgorithmException {
+		Key aesKey = KeyUtil.generateAESKey(DEFAULT_AES_KEY_SIZE);
+		this.aesSercetKey = KeyUtil.keyBytes2String(aesKey.getEncoded());
+	}
+
+	private void initEcKey() throws NoSuchAlgorithmException {
+		KeyPair ecPlatformKeyPair = KeyUtil.generateEcKeyPair(DEFAULT_EC_KEY_SIZE);
+		KeyPair ecTenantKeyPair = KeyUtil.generateEcKeyPair(DEFAULT_EC_KEY_SIZE);
+
+		this.platformEcPrivateKey = KeyUtil.keyBytes2String(ecPlatformKeyPair.getPrivate().getEncoded());
+		this.platformEcPublicKey = KeyUtil.keyBytes2String(ecPlatformKeyPair.getPublic().getEncoded());
+
+		this.tenantEcPrivateKey = KeyUtil.keyBytes2String(ecTenantKeyPair.getPrivate().getEncoded());
+		this.tenantEcPublicKey = KeyUtil.keyBytes2String(ecTenantKeyPair.getPublic().getEncoded());
+	}
+
+	private void initRsaKey() throws NoSuchAlgorithmException {
+		KeyPair rsaPlatformKeyPair = KeyUtil.generateRSAKeyPair(DEFAULT_RSA_KEY_SIZE);
+		KeyPair rsaTenantKeyPair = KeyUtil.generateRSAKeyPair(DEFAULT_RSA_KEY_SIZE);
+
+		this.platformRsaPrivateKey = KeyUtil.keyBytes2String(rsaPlatformKeyPair.getPrivate().getEncoded());
+		this.platformRsaPublicKey = KeyUtil.keyBytes2String(rsaPlatformKeyPair.getPublic().getEncoded());
+
+		this.tenantRsaPrivateKey = KeyUtil.keyBytes2String(rsaTenantKeyPair.getPrivate().getEncoded());
+		this.tenantRsaPublicKey = KeyUtil.keyBytes2String(rsaTenantKeyPair.getPublic().getEncoded());
+	}
 
 	/**
 	 * secret key用于加密
@@ -23,7 +121,6 @@ public class TokenSpec {
 	 * 是否使用动态安全加密密钥,使用动态密码时需要生成dh key
 	 */
 	private boolean isDymanicSercetKey;
-	private boolean isEncryption;
 	private String signatureAlgorithm;
 	private String encryptAlgorithm;
 	/**
@@ -61,14 +158,6 @@ public class TokenSpec {
 
 	public void setDymanicSercetKey(boolean isDymanicSercetKey) {
 		this.isDymanicSercetKey = isDymanicSercetKey;
-	}
-
-	public boolean isEncryption() {
-		return isEncryption;
-	}
-
-	public void setEncryption(boolean isEncryption) {
-		this.isEncryption = isEncryption;
 	}
 
 	public String getSignatureAlgorithm() {
@@ -192,11 +281,11 @@ public class TokenSpec {
 			break;
 
 		default:
-			throw new InvalidSignatureAlgorithmException();
+			throw new InvalidKeyAlgorithmException();
 		}
 		return signatureKey;
 	}
-	
+
 	@Transient
 	public String getVerifyKey() {
 		String verifyKey = null;
@@ -214,47 +303,35 @@ public class TokenSpec {
 			break;
 
 		default:
-			throw new InvalidSignatureAlgorithmException();
-		}	
+			throw new InvalidKeyAlgorithmException();
+		}
 		return verifyKey;
 	}
 
 	@Transient
 	public String getEncryptKey() {
 		String encryptKey = null;
-		if (this.isEncryption()) {
-			switch (this.getEncryptAlgorithm()) {
-			case TokenSpec.ENCRYPT_ALGORITHM_AES:
-				encryptKey = this.getAesSercetKey();
-				break;
+		switch (this.getEncryptAlgorithm()) {
+		case TokenSpec.ENCRYPT_ALGORITHM_AES:
+			encryptKey = this.getAesSercetKey();
+			break;
 
-			case TokenSpec.ENCRYPT_ALGORITHM_RSA:
-				encryptKey = this.getTenantRsaPublicKey();
-				break;
-
-			default:
-				throw new InvalidEncryptAlgorithmException();
-			}
+		default:
+			throw new InvalidKeyAlgorithmException();
 		}
 		return encryptKey;
 	}
-	
+
 	@Transient
 	public String getDecryptKey() {
 		String decryptKey = null;
-		if (this.isEncryption()) {
-			switch (this.getEncryptAlgorithm()) {
-			case TokenSpec.ENCRYPT_ALGORITHM_AES:
-				decryptKey = this.getAesSercetKey();
-				break;
+		switch (this.getEncryptAlgorithm()) {
+		case TokenSpec.ENCRYPT_ALGORITHM_AES:
+			decryptKey = this.getAesSercetKey();
+			break;
 
-			case TokenSpec.ENCRYPT_ALGORITHM_RSA:
-				decryptKey = this.getTenantRsaPublicKey();
-				break;
-
-			default:
-				throw new InvalidEncryptAlgorithmException();
-			}
+		default:
+			throw new InvalidKeyAlgorithmException();
 		}
 		return decryptKey;
 	}
