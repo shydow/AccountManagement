@@ -131,8 +131,16 @@ public class TokenUtil {
 	}
 
 	public static Map<String, Object> parse(TokenSpec tokenSpec, String token) {
+		return parse(tokenSpec, token, false);
+	}
+	
+	public static Map<String, Object> parse(TokenSpec tokenSpec, String token, boolean verifySelf) {
 
-		String verifyKey = tokenSpec.getVerifyKey();
+		String verifyKey = null;
+		if (verifySelf) {
+			verifyKey = tokenSpec.getSelfVerifyKey();
+		}
+		verifyKey = tokenSpec.getVerifyKey();
 		String decryptKey = tokenSpec.getEncryptKey();
 
 		try {

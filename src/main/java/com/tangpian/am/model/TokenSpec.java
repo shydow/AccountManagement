@@ -314,13 +314,35 @@ public class TokenSpec {
 		}
 		return verifyKey;
 	}
+	
+	@Transient
+	public String getSelfVerifyKey() {
+		String verifyKey = null;
+		switch (this.getSignatureAlgorithm()) {
+		case TokenSpec.SIGNATURE_ALGORITHM_RSA:
+			verifyKey = this.getPlatformRsaPublicKey();
+			break;
+
+		case TokenSpec.SIGNATURE_ALGORITHM_EC:
+			verifyKey = this.getPlatformEcPublicKey();
+			break;
+
+		case TokenSpec.SIGNATURE_ALGORITHM_HMAC:
+			verifyKey = this.getSignatureAesKey();
+			break;
+
+		default:
+			throw new InvalidKeyAlgorithmException();
+		}
+		return verifyKey;
+	}
 
 	@Transient
 	public String getEncryptKey() {
 		String encryptKey = null;
 		if (isDymanicSercetKey) {
 			try {
-				encryptKey = generateDymanicSecretKey(this);
+				encryptKey = getDymanicSecretKey(this);
 			} catch (InvalidKeyException | IllegalStateException | NoSuchAlgorithmException
 					| InvalidKeySpecException e) {
 				e.printStackTrace();
@@ -339,7 +361,7 @@ public class TokenSpec {
 		return encryptKey;
 	}
 
-	private String generateDymanicSecretKey(TokenSpec tokenSpec) throws InvalidKeyException, IllegalStateException, NoSuchAlgorithmException, InvalidKeySpecException {
+	private String getDymanicSecretKey(TokenSpec tokenSpec) throws InvalidKeyException, IllegalStateException, NoSuchAlgorithmException, InvalidKeySpecException {
 		String platformPrivateKey = tokenSpec.getPlatformDhPrivateKey();
 		String tenantPublicKey = tokenSpec.getTenantDhPublicKey();
 		String encryptKey = searchDymanicKeyCache(platformPrivateKey, tenantPublicKey);
@@ -357,20 +379,6 @@ public class TokenSpec {
 	
 	private void updateDymanicKeyCache(String platformPrivateKey, String tenantPublicKey, String secretKey) {
 		dymanicKeyCache.put(platformPrivateKey + "||" + tenantPublicKey, secretKey);
-	}
-
-	@Transient
-	public String getDecryptKey() {
-		String decryptKey = null;
-		switch (this.getEncryptAlgorithm()) {
-		case TokenSpec.ENCRYPT_ALGORITHM_AES:
-			decryptKey = this.getEncryptAesKey();
-			break;
-
-		default:
-			throw new InvalidKeyAlgorithmException();
-		}
-		return decryptKey;
 	}
 
 	public String getSignatureAesKey() {
