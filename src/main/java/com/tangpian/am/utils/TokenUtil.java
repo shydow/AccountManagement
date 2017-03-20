@@ -3,6 +3,7 @@ package com.tangpian.am.utils;
 import java.security.KeyFactory;
 import java.security.NoSuchAlgorithmException;
 import java.security.PrivateKey;
+import java.security.interfaces.ECPrivateKey;
 import java.security.interfaces.ECPublicKey;
 import java.security.interfaces.RSAPublicKey;
 import java.security.spec.InvalidKeySpecException;
@@ -25,7 +26,9 @@ import com.nimbusds.jose.KeyLengthException;
 import com.nimbusds.jose.Payload;
 import com.nimbusds.jose.crypto.DirectDecrypter;
 import com.nimbusds.jose.crypto.DirectEncrypter;
+import com.nimbusds.jose.crypto.ECDSASigner;
 import com.nimbusds.jose.crypto.ECDSAVerifier;
+import com.nimbusds.jose.crypto.MACSigner;
 import com.nimbusds.jose.crypto.MACVerifier;
 import com.nimbusds.jose.crypto.RSASSASigner;
 import com.nimbusds.jose.crypto.RSASSAVerifier;
@@ -36,6 +39,7 @@ import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.JWTParser;
 import com.nimbusds.jwt.SignedJWT;
 import com.tangpian.am.exception.EncryptException;
+import com.tangpian.am.exception.InvalidKeyAlgorithmException;
 import com.tangpian.am.exception.SignatureException;
 import com.tangpian.am.model.TokenSpec;
 
@@ -44,42 +48,23 @@ public class TokenUtil {
 	public static String generate(TokenSpec tokenSpec, Map<String, Object> data) {
 		String token = null;
 
-		if (tokenSpec.isDymanicSercetKey()) {
-			// TODO 利用dh处理动态密码
-
-		} else {
-			token = generateWithoutDymanicKey(tokenSpec.getSignatureKey(),
-					tokenSpec.getEncryptKey(), data);
-		}
-		return token;
-	}
-
-	/**
-	 * 通过AES进行加密，通过RSA进行签名
-	 * 
-	 * @param signatureKey
-	 *            平台私钥
-	 * @param encryptKey
-	 *            aes加密密钥，限定为128位
-	 * @param data
-	 * @return
-	 */
-	public static String generateWithoutDymanicKey(String signatureKey, String encryptKey, Map<String, Object> data) {
 		SignedJWT signedJWT;
 		try {
-			signedJWT = Sign(signatureKey, data);
+			signedJWT = sign(tokenSpec, data);
+
 		} catch (NoSuchAlgorithmException | InvalidKeySpecException | JOSEException e) {
 			e.printStackTrace();
 			throw new SignatureException();
 		}
 		JWEObject jweObject;
 		try {
-			jweObject = encrypt(encryptKey, signedJWT);
+			jweObject = encrypt(tokenSpec.getEncryptKey(), signedJWT);
 		} catch (JOSEException e) {
 			e.printStackTrace();
 			throw new EncryptException();
 		}
-		return jweObject.serialize();
+		token = jweObject.serialize();
+		return token;
 	}
 
 	private static JWEObject encrypt(String encryptKey, SignedJWT signedJWT) throws JOSEException, KeyLengthException {
@@ -90,7 +75,49 @@ public class TokenUtil {
 		return jweObject;
 	}
 
-	private static SignedJWT Sign(String signatureKey, Map<String, Object> data)
+	private static SignedJWT sign(TokenSpec tokenSpec, Map<String, Object> data)
+			throws NoSuchAlgorithmException, InvalidKeySpecException, JOSEException {
+		SignedJWT signedJWT = null;
+		switch (tokenSpec.getSignatureAlgorithm()) {
+		case TokenSpec.SIGNATURE_ALGORITHM_RSA:
+			signedJWT = rsaSign(tokenSpec.getSignatureKey(), data);
+			break;
+
+		case TokenSpec.SIGNATURE_ALGORITHM_HMAC:
+			signedJWT = hmacSign(tokenSpec.getSignatureKey(), data);
+			break;
+
+		case TokenSpec.SIGNATURE_ALGORITHM_EC:
+			signedJWT = ecSign(tokenSpec.getSignatureKey(), data);
+			break;
+
+		default:
+			throw new InvalidKeyAlgorithmException();
+		}
+		return signedJWT;
+	}
+
+	private static SignedJWT ecSign(String signatureKey, Map<String, Object> data)
+			throws NoSuchAlgorithmException, InvalidKeySpecException, JOSEException {
+		PKCS8EncodedKeySpec keySpec = new PKCS8EncodedKeySpec(KeyUtil.keyString2Bytes(signatureKey));
+		KeyFactory keyFactory = KeyFactory.getInstance("EC");
+
+		JWSSigner signer = new ECDSASigner((ECPrivateKey) keyFactory.generatePrivate(keySpec));
+
+		SignedJWT signedJWT = new SignedJWT(new JWSHeader(JWSAlgorithm.ES256), build(data));
+
+		signedJWT.sign(signer);
+		return signedJWT;
+	}
+
+	private static SignedJWT hmacSign(String signatureKey, Map<String, Object> data) throws JOSEException {
+		JWSSigner signer = new MACSigner(signatureKey);
+		SignedJWT signedJWT = new SignedJWT(new JWSHeader(JWSAlgorithm.HS256), build(data));
+		signedJWT.sign(signer);
+		return signedJWT;
+	}
+
+	private static SignedJWT rsaSign(String signatureKey, Map<String, Object> data)
 			throws NoSuchAlgorithmException, InvalidKeySpecException, JOSEException {
 		PKCS8EncodedKeySpec keySpec = new PKCS8EncodedKeySpec(KeyUtil.keyString2Bytes(signatureKey));
 		KeyFactory keyFactory = KeyFactory.getInstance("RSA");
@@ -134,7 +161,8 @@ public class TokenUtil {
 
 			if (JWEAlgorithm.Family.RSA.contains(encryptedJWT.getHeader().getAlgorithm())) {
 				KeyFactory rsaFactory = KeyFactory.getInstance("RSA");
-				PrivateKey rsaPrivateKey = rsaFactory.generatePrivate(new PKCS8EncodedKeySpec(KeyUtil.keyString2Bytes(decryptKey)));
+				PrivateKey rsaPrivateKey = rsaFactory
+						.generatePrivate(new PKCS8EncodedKeySpec(KeyUtil.keyString2Bytes(decryptKey)));
 				encryptedJWT.decrypt(
 						new DefaultJWEDecrypterFactory().createJWEDecrypter(encryptedJWT.getHeader(), rsaPrivateKey));
 			} else {
@@ -148,11 +176,13 @@ public class TokenUtil {
 
 		if (JWSAlgorithm.Family.RSA.contains(signedJWT.getHeader().getAlgorithm())) {
 			KeyFactory factory = KeyFactory.getInstance("RSA");
-			RSAPublicKey publicKey = (RSAPublicKey) factory.generatePublic(new X509EncodedKeySpec(KeyUtil.keyString2Bytes(verifyKey)));
+			RSAPublicKey publicKey = (RSAPublicKey) factory
+					.generatePublic(new X509EncodedKeySpec(KeyUtil.keyString2Bytes(verifyKey)));
 			signedJWT.verify(new RSASSAVerifier(publicKey));
 		} else if (JWSAlgorithm.Family.EC.contains(signedJWT.getHeader().getAlgorithm())) {
 			KeyFactory factory = KeyFactory.getInstance("EC");
-			ECPublicKey publicKey = (ECPublicKey) factory.generatePublic(new X509EncodedKeySpec(KeyUtil.keyString2Bytes(verifyKey)));
+			ECPublicKey publicKey = (ECPublicKey) factory
+					.generatePublic(new X509EncodedKeySpec(KeyUtil.keyString2Bytes(verifyKey)));
 			signedJWT.verify(new ECDSAVerifier(publicKey));
 		} else if (JWSAlgorithm.Family.HMAC_SHA.contains(signedJWT.getHeader().getAlgorithm())) {
 			signedJWT.verify(new MACVerifier(verifyKey));

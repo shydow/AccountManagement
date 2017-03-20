@@ -9,6 +9,7 @@ import java.security.KeyPairGenerator;
 import java.security.NoSuchAlgorithmException;
 import java.security.PrivateKey;
 import java.security.PublicKey;
+import java.security.SecureRandom;
 import java.security.spec.InvalidKeySpecException;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
@@ -44,6 +45,12 @@ public class KeyUtil {
 		KeyPairGenerator generator = KeyPairGenerator.getInstance("EC");
 		generator.initialize(keySize);
 		return generator.generateKeyPair();
+	}
+	
+	public static Key generateAESKey(int keySize, byte[] seed) throws NoSuchAlgorithmException {
+		KeyGenerator generator = KeyGenerator.getInstance("AES");
+		generator.init(keySize, new SecureRandom(seed));
+		return generator.generateKey();
 	}
 
 	public static KeyPair generateSourceKeyPair(int keySize) throws NoSuchAlgorithmException {

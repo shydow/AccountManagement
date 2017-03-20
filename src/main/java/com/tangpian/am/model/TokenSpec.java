@@ -1,30 +1,39 @@
 package com.tangpian.am.model;
 
+import java.security.InvalidKeyException;
 import java.security.Key;
 import java.security.KeyPair;
 import java.security.NoSuchAlgorithmException;
+import java.security.spec.InvalidKeySpecException;
+import java.util.HashMap;
+import java.util.Map;
 
 import javax.persistence.Embeddable;
 import javax.persistence.Transient;
 
 import com.tangpian.am.exception.InvalidKeyAlgorithmException;
+import com.tangpian.am.exception.KeyException;
 import com.tangpian.am.utils.KeyUtil;
 
 @Embeddable
 public class TokenSpec {
+	private static Map<String, String> dymanicKeyCache = new HashMap<>();
+	
 	public static final String ENCRYPT_ALGORITHM_AES = "AES";
-//	public static final String ENCRYPT_ALGORITHM_RSA = "RSA";
+	// public static final String ENCRYPT_ALGORITHM_RSA = "RSA";
 	public static final String SIGNATURE_ALGORITHM_HMAC = "HMAC";
 	public static final String SIGNATURE_ALGORITHM_EC = "EC";
 	public static final String SIGNATURE_ALGORITHM_RSA = "RSA";
 
-	private static final int DEFAULT_AES_KEY_SIZE = 128;
+	private static final int DEFAULT_ENCRYPT_AES_KEY_SIZE = 128;
+	private static final int DEFAULT_SIGNATURE_AES_KEY_SIZE = 256;
 	private static final int DEFAULT_RSA_KEY_SIZE = 1024;
-	private static final int DEFAULT_EC_KEY_SIZE = 512;
-	private static final int DEFAULT_DH_KEY_SIZE = 256;
+	private static final int DEFAULT_EC_KEY_SIZE = 256;
+	private static final int DEFAULT_DH_KEY_SIZE = 512;
 
 	/**
 	 * TokenSpec 用于管理token相关的
+	 * 
 	 * @param signatureAlgorithm
 	 * @param encryptAlgorithm
 	 */
@@ -51,7 +60,7 @@ public class TokenSpec {
 		switch (encryptAlgorithm) {
 
 		case ENCRYPT_ALGORITHM_AES:
-			initAesKey();
+			initEncryptAesKey();
 			break;
 
 		default:
@@ -78,7 +87,7 @@ public class TokenSpec {
 			break;
 
 		case SIGNATURE_ALGORITHM_HMAC:
-			initAesKey();
+			initSignatureAesKey();
 			break;
 
 		default:
@@ -86,9 +95,14 @@ public class TokenSpec {
 		}
 	}
 
-	private void initAesKey() throws NoSuchAlgorithmException {
-		Key aesKey = KeyUtil.generateAESKey(DEFAULT_AES_KEY_SIZE);
-		this.aesSercetKey = KeyUtil.keyBytes2String(aesKey.getEncoded());
+	private void initEncryptAesKey() throws NoSuchAlgorithmException {
+		Key aesKey = KeyUtil.generateAESKey(DEFAULT_ENCRYPT_AES_KEY_SIZE);
+		this.encryptAesKey = KeyUtil.keyBytes2String(aesKey.getEncoded());
+	}
+	
+	private void initSignatureAesKey() throws NoSuchAlgorithmException {
+		Key aesKey = KeyUtil.generateAESKey(DEFAULT_SIGNATURE_AES_KEY_SIZE);
+		this.signatureAesKey = KeyUtil.keyBytes2String(aesKey.getEncoded());
 	}
 
 	private void initEcKey() throws NoSuchAlgorithmException {
@@ -113,10 +127,11 @@ public class TokenSpec {
 		this.tenantRsaPublicKey = KeyUtil.keyBytes2String(rsaTenantKeyPair.getPublic().getEncoded());
 	}
 
+	private String signatureAesKey;
 	/**
 	 * secret key用于加密
 	 */
-	private String aesSercetKey;
+	private String encryptAesKey;
 	/**
 	 * 是否使用动态安全加密密钥,使用动态密码时需要生成dh key
 	 */
@@ -143,14 +158,6 @@ public class TokenSpec {
 	public String platFormDhPublicKey;
 	public String platformDhPrivateKey;
 	public String tenantDhPublicKey;
-
-	public String getAesSercetKey() {
-		return aesSercetKey;
-	}
-
-	public void setAesSercetKey(String aesSercetKey) {
-		this.aesSercetKey = aesSercetKey;
-	}
 
 	public boolean isDymanicSercetKey() {
 		return isDymanicSercetKey;
@@ -277,7 +284,7 @@ public class TokenSpec {
 			break;
 
 		case TokenSpec.SIGNATURE_ALGORITHM_HMAC:
-			signatureKey = this.getAesSercetKey();
+			signatureKey = this.getSignatureAesKey();
 			break;
 
 		default:
@@ -299,7 +306,7 @@ public class TokenSpec {
 			break;
 
 		case TokenSpec.SIGNATURE_ALGORITHM_HMAC:
-			verifyKey = this.getAesSercetKey();
+			verifyKey = this.getSignatureAesKey();
 			break;
 
 		default:
@@ -311,15 +318,45 @@ public class TokenSpec {
 	@Transient
 	public String getEncryptKey() {
 		String encryptKey = null;
-		switch (this.getEncryptAlgorithm()) {
-		case TokenSpec.ENCRYPT_ALGORITHM_AES:
-			encryptKey = this.getAesSercetKey();
-			break;
+		if (isDymanicSercetKey) {
+			try {
+				encryptKey = generateDymanicSecretKey(this);
+			} catch (InvalidKeyException | IllegalStateException | NoSuchAlgorithmException
+					| InvalidKeySpecException e) {
+				e.printStackTrace();
+				throw new KeyException();
+			}
+	 	} else {
+			switch (this.getEncryptAlgorithm()) {
+			case TokenSpec.ENCRYPT_ALGORITHM_AES:
+				encryptKey = this.getEncryptAesKey();
+				break;
 
-		default:
-			throw new InvalidKeyAlgorithmException();
+			default:
+				throw new InvalidKeyAlgorithmException();
+			}	 		
+	 	}
+		return encryptKey;
+	}
+
+	private String generateDymanicSecretKey(TokenSpec tokenSpec) throws InvalidKeyException, IllegalStateException, NoSuchAlgorithmException, InvalidKeySpecException {
+		String platformPrivateKey = tokenSpec.getPlatformDhPrivateKey();
+		String tenantPublicKey = tokenSpec.getTenantDhPublicKey();
+		String encryptKey = searchDymanicKeyCache(platformPrivateKey, tenantPublicKey);
+		if (encryptKey == null) {
+			byte[] seed = KeyUtil.generateDhSecretKey(KeyUtil.keyString2Bytes(tenantPublicKey), KeyUtil.keyString2Bytes(platformPrivateKey));
+			encryptKey = KeyUtil.keyBytes2String(KeyUtil.generateAESKey(DEFAULT_ENCRYPT_AES_KEY_SIZE, seed).getEncoded());
+			updateDymanicKeyCache(platformPrivateKey, tenantPublicKey, encryptKey);
 		}
 		return encryptKey;
+	}
+	
+	private String searchDymanicKeyCache(String platformPrivateKey, String tenantPublicKey) {
+		return dymanicKeyCache.get(platformPrivateKey + "||" + tenantPublicKey);
+	}
+	
+	private void updateDymanicKeyCache(String platformPrivateKey, String tenantPublicKey, String secretKey) {
+		dymanicKeyCache.put(platformPrivateKey + "||" + tenantPublicKey, secretKey);
 	}
 
 	@Transient
@@ -327,12 +364,28 @@ public class TokenSpec {
 		String decryptKey = null;
 		switch (this.getEncryptAlgorithm()) {
 		case TokenSpec.ENCRYPT_ALGORITHM_AES:
-			decryptKey = this.getAesSercetKey();
+			decryptKey = this.getEncryptAesKey();
 			break;
 
 		default:
 			throw new InvalidKeyAlgorithmException();
 		}
 		return decryptKey;
+	}
+
+	public String getSignatureAesKey() {
+		return signatureAesKey;
+	}
+
+	public void setSignatureAesKey(String signatureAesKey) {
+		this.signatureAesKey = signatureAesKey;
+	}
+
+	public String getEncryptAesKey() {
+		return encryptAesKey;
+	}
+
+	public void setEncryptAesKey(String encryptAesKey) {
+		this.encryptAesKey = encryptAesKey;
 	}
 }
