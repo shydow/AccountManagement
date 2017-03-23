@@ -8,8 +8,12 @@ import java.security.spec.InvalidKeySpecException;
 import java.util.HashMap;
 import java.util.Map;
 
+import javax.persistence.Column;
 import javax.persistence.Embeddable;
 import javax.persistence.Transient;
+
+import org.apache.commons.lang3.builder.ToStringBuilder;
+import org.apache.commons.lang3.builder.ToStringStyle;
 
 import com.tangpian.am.exception.InvalidKeyAlgorithmException;
 import com.tangpian.am.exception.KeyException;
@@ -18,7 +22,7 @@ import com.tangpian.am.utils.KeyUtil;
 @Embeddable
 public class TokenSpec {
 	private static Map<String, String> dymanicKeyCache = new HashMap<>();
-	
+
 	public static final String ENCRYPT_ALGORITHM_AES = "AES";
 	// public static final String ENCRYPT_ALGORITHM_RSA = "RSA";
 	public static final String SIGNATURE_ALGORITHM_HMAC = "HMAC";
@@ -38,7 +42,7 @@ public class TokenSpec {
 	 * @param encryptAlgorithm
 	 */
 	public TokenSpec(String signatureAlgorithm, String encryptAlgorithm) {
-		new TokenSpec(signatureAlgorithm, encryptAlgorithm, false);
+		this(signatureAlgorithm, encryptAlgorithm, false);
 	}
 
 	public TokenSpec(String signatureAlgorithm, String encryptAlgorithm, boolean isDymanicSercetKey) {
@@ -99,7 +103,7 @@ public class TokenSpec {
 		Key aesKey = KeyUtil.generateAESKey(DEFAULT_ENCRYPT_AES_KEY_SIZE);
 		this.encryptAesKey = KeyUtil.keyBytes2String(aesKey.getEncoded());
 	}
-	
+
 	private void initSignatureAesKey() throws NoSuchAlgorithmException {
 		Key aesKey = KeyUtil.generateAESKey(DEFAULT_SIGNATURE_AES_KEY_SIZE);
 		this.signatureAesKey = KeyUtil.keyBytes2String(aesKey.getEncoded());
@@ -120,17 +124,29 @@ public class TokenSpec {
 		KeyPair rsaPlatformKeyPair = KeyUtil.generateRSAKeyPair(DEFAULT_RSA_KEY_SIZE);
 		KeyPair rsaTenantKeyPair = KeyUtil.generateRSAKeyPair(DEFAULT_RSA_KEY_SIZE);
 
-		this.platformRsaPrivateKey = KeyUtil.keyBytes2String(rsaPlatformKeyPair.getPrivate().getEncoded());
-		this.platformRsaPublicKey = KeyUtil.keyBytes2String(rsaPlatformKeyPair.getPublic().getEncoded());
+		this.setPlatformRsaPrivateKey(KeyUtil.keyBytes2String(rsaPlatformKeyPair.getPrivate().getEncoded()));
+		this.setPlatformRsaPublicKey(KeyUtil.keyBytes2String(rsaPlatformKeyPair.getPublic().getEncoded()));
 
-		this.tenantRsaPrivateKey = KeyUtil.keyBytes2String(rsaTenantKeyPair.getPrivate().getEncoded());
-		this.tenantRsaPublicKey = KeyUtil.keyBytes2String(rsaTenantKeyPair.getPublic().getEncoded());
+		this.setTenantRsaPrivateKey(KeyUtil.keyBytes2String(rsaTenantKeyPair.getPrivate().getEncoded()));
+		this.setTenantRsaPublicKey(KeyUtil.keyBytes2String(rsaTenantKeyPair.getPublic().getEncoded()));
+
+		// this.platformRsaPrivateKey =
+		// KeyUtil.keyBytes2String(rsaPlatformKeyPair.getPrivate().getEncoded());
+		// this.platformRsaPublicKey =
+		// KeyUtil.keyBytes2String(rsaPlatformKeyPair.getPublic().getEncoded());
+		//
+		// this.tenantRsaPrivateKey =
+		// KeyUtil.keyBytes2String(rsaTenantKeyPair.getPrivate().getEncoded());
+		// this.tenantRsaPublicKey =
+		// KeyUtil.keyBytes2String(rsaTenantKeyPair.getPublic().getEncoded());
 	}
 
+	@Column(length = DEFAULT_SIGNATURE_AES_KEY_SIZE)
 	private String signatureAesKey;
 	/**
 	 * secret key用于加密
 	 */
+	@Column(length = DEFAULT_ENCRYPT_AES_KEY_SIZE)
 	private String encryptAesKey;
 	/**
 	 * 是否使用动态安全加密密钥,使用动态密码时需要生成dh key
@@ -141,22 +157,31 @@ public class TokenSpec {
 	/**
 	 * public/private key 用于客户端签名和验签
 	 */
+	@Column(length = DEFAULT_RSA_KEY_SIZE)
 	private String tenantRsaPublicKey;
 	@Transient
 	private String tenantRsaPrivateKey;
+	@Column(length = DEFAULT_RSA_KEY_SIZE)
 	private String platformRsaPublicKey;
+	@Column(length = DEFAULT_RSA_KEY_SIZE)
 	private String platformRsaPrivateKey;
 
+	@Column(length = DEFAULT_EC_KEY_SIZE)
 	private String tenantEcPublicKey;
 	@Transient
 	private String tenantEcPrivateKey;
+	@Column(length = DEFAULT_EC_KEY_SIZE)
 	private String platformEcPublicKey;
+	@Column(length = DEFAULT_EC_KEY_SIZE)
 	private String platformEcPrivateKey;
 	/**
 	 * dh key用于交换安全加密密钥
 	 */
+	@Column(length = DEFAULT_DH_KEY_SIZE)
 	public String platFormDhPublicKey;
+	@Column(length = DEFAULT_DH_KEY_SIZE)
 	public String platformDhPrivateKey;
+	@Column(length = DEFAULT_DH_KEY_SIZE)
 	public String tenantDhPublicKey;
 
 	public boolean isDymanicSercetKey() {
@@ -314,7 +339,7 @@ public class TokenSpec {
 		}
 		return verifyKey;
 	}
-	
+
 	@Transient
 	public String getSelfVerifyKey() {
 		String verifyKey = null;
@@ -348,7 +373,7 @@ public class TokenSpec {
 				e.printStackTrace();
 				throw new KeyException();
 			}
-	 	} else {
+		} else {
 			switch (this.getEncryptAlgorithm()) {
 			case TokenSpec.ENCRYPT_ALGORITHM_AES:
 				encryptKey = this.getEncryptAesKey();
@@ -356,27 +381,30 @@ public class TokenSpec {
 
 			default:
 				throw new InvalidKeyAlgorithmException();
-			}	 		
-	 	}
+			}
+		}
 		return encryptKey;
 	}
 
-	private String getDymanicSecretKey(TokenSpec tokenSpec) throws InvalidKeyException, IllegalStateException, NoSuchAlgorithmException, InvalidKeySpecException {
+	private String getDymanicSecretKey(TokenSpec tokenSpec)
+			throws InvalidKeyException, IllegalStateException, NoSuchAlgorithmException, InvalidKeySpecException {
 		String platformPrivateKey = tokenSpec.getPlatformDhPrivateKey();
 		String tenantPublicKey = tokenSpec.getTenantDhPublicKey();
 		String encryptKey = searchDymanicKeyCache(platformPrivateKey, tenantPublicKey);
 		if (encryptKey == null) {
-			byte[] seed = KeyUtil.generateDhSecretKey(KeyUtil.keyString2Bytes(tenantPublicKey), KeyUtil.keyString2Bytes(platformPrivateKey));
-			encryptKey = KeyUtil.keyBytes2String(KeyUtil.generateAESKey(DEFAULT_ENCRYPT_AES_KEY_SIZE, seed).getEncoded());
+			byte[] seed = KeyUtil.generateDhSecretKey(KeyUtil.keyString2Bytes(tenantPublicKey),
+					KeyUtil.keyString2Bytes(platformPrivateKey));
+			encryptKey = KeyUtil
+					.keyBytes2String(KeyUtil.generateAESKey(DEFAULT_ENCRYPT_AES_KEY_SIZE, seed).getEncoded());
 			updateDymanicKeyCache(platformPrivateKey, tenantPublicKey, encryptKey);
 		}
 		return encryptKey;
 	}
-	
+
 	private String searchDymanicKeyCache(String platformPrivateKey, String tenantPublicKey) {
 		return dymanicKeyCache.get(platformPrivateKey + "||" + tenantPublicKey);
 	}
-	
+
 	private void updateDymanicKeyCache(String platformPrivateKey, String tenantPublicKey, String secretKey) {
 		dymanicKeyCache.put(platformPrivateKey + "||" + tenantPublicKey, secretKey);
 	}
@@ -395,5 +423,10 @@ public class TokenSpec {
 
 	public void setEncryptAesKey(String encryptAesKey) {
 		this.encryptAesKey = encryptAesKey;
+	}
+
+	@Override
+	public String toString() {
+		return ToStringBuilder.reflectionToString(this, ToStringStyle.MULTI_LINE_STYLE);
 	}
 }

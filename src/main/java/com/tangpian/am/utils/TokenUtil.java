@@ -41,16 +41,22 @@ import com.nimbusds.jwt.SignedJWT;
 import com.tangpian.am.exception.EncryptException;
 import com.tangpian.am.exception.InvalidKeyAlgorithmException;
 import com.tangpian.am.exception.SignatureException;
+import com.tangpian.am.model.Message;
 import com.tangpian.am.model.TokenSpec;
+
+import net.minidev.json.JSONObject;
 
 public class TokenUtil {
 
-	public static String generate(TokenSpec tokenSpec, Map<String, Object> data) {
+	private static final String KEY_DATA = "data";
+	private static final String KEY_VERSION = "version";
+
+	public static String generate(TokenSpec tokenSpec, Object data) {
 		String token = null;
 
 		SignedJWT signedJWT;
 		try {
-			signedJWT = sign(tokenSpec, data);
+			signedJWT = sign(tokenSpec, new Message(data));
 
 		} catch (NoSuchAlgorithmException | InvalidKeySpecException | JOSEException e) {
 			e.printStackTrace();
@@ -67,74 +73,11 @@ public class TokenUtil {
 		return token;
 	}
 
-	private static JWEObject encrypt(String encryptKey, SignedJWT signedJWT) throws JOSEException, KeyLengthException {
-		JWEObject jweObject = new JWEObject(
-				new JWEHeader.Builder(JWEAlgorithm.DIR, EncryptionMethod.A128GCM).contentType("JWT").build(),
-				new Payload(signedJWT));
-		jweObject.encrypt(new DirectEncrypter(KeyUtil.keyString2Bytes(encryptKey)));
-		return jweObject;
+	public static <T> T parse(TokenSpec tokenSpec, String token, Class<T> clazz) {
+		return parse(tokenSpec, token, clazz, false);
 	}
 
-	private static SignedJWT sign(TokenSpec tokenSpec, Map<String, Object> data)
-			throws NoSuchAlgorithmException, InvalidKeySpecException, JOSEException {
-		SignedJWT signedJWT = null;
-		switch (tokenSpec.getSignatureAlgorithm()) {
-		case TokenSpec.SIGNATURE_ALGORITHM_RSA:
-			signedJWT = rsaSign(tokenSpec.getSignatureKey(), data);
-			break;
-
-		case TokenSpec.SIGNATURE_ALGORITHM_HMAC:
-			signedJWT = hmacSign(tokenSpec.getSignatureKey(), data);
-			break;
-
-		case TokenSpec.SIGNATURE_ALGORITHM_EC:
-			signedJWT = ecSign(tokenSpec.getSignatureKey(), data);
-			break;
-
-		default:
-			throw new InvalidKeyAlgorithmException();
-		}
-		return signedJWT;
-	}
-
-	private static SignedJWT ecSign(String signatureKey, Map<String, Object> data)
-			throws NoSuchAlgorithmException, InvalidKeySpecException, JOSEException {
-		PKCS8EncodedKeySpec keySpec = new PKCS8EncodedKeySpec(KeyUtil.keyString2Bytes(signatureKey));
-		KeyFactory keyFactory = KeyFactory.getInstance("EC");
-
-		JWSSigner signer = new ECDSASigner((ECPrivateKey) keyFactory.generatePrivate(keySpec));
-
-		SignedJWT signedJWT = new SignedJWT(new JWSHeader(JWSAlgorithm.ES256), build(data));
-
-		signedJWT.sign(signer);
-		return signedJWT;
-	}
-
-	private static SignedJWT hmacSign(String signatureKey, Map<String, Object> data) throws JOSEException {
-		JWSSigner signer = new MACSigner(signatureKey);
-		SignedJWT signedJWT = new SignedJWT(new JWSHeader(JWSAlgorithm.HS256), build(data));
-		signedJWT.sign(signer);
-		return signedJWT;
-	}
-
-	private static SignedJWT rsaSign(String signatureKey, Map<String, Object> data)
-			throws NoSuchAlgorithmException, InvalidKeySpecException, JOSEException {
-		PKCS8EncodedKeySpec keySpec = new PKCS8EncodedKeySpec(KeyUtil.keyString2Bytes(signatureKey));
-		KeyFactory keyFactory = KeyFactory.getInstance("RSA");
-
-		JWSSigner signer = new RSASSASigner(keyFactory.generatePrivate(keySpec));
-
-		SignedJWT signedJWT = new SignedJWT(new JWSHeader(JWSAlgorithm.RS256), build(data));
-
-		signedJWT.sign(signer);
-		return signedJWT;
-	}
-
-	public static Map<String, Object> parse(TokenSpec tokenSpec, String token) {
-		return parse(tokenSpec, token, false);
-	}
-	
-	public static Map<String, Object> parse(TokenSpec tokenSpec, String token, boolean verifySelf) {
+	public static <T> T parse(TokenSpec tokenSpec, String token, Class<T> clazz, boolean verifySelf) {
 
 		String verifyKey = null;
 		if (verifySelf) {
@@ -144,17 +87,80 @@ public class TokenUtil {
 		String decryptKey = tokenSpec.getEncryptKey();
 
 		try {
-			return parse2Claims(token, verifyKey, decryptKey).getClaims();
+			return parse2Object(token, verifyKey, decryptKey, clazz);
 		} catch (NoSuchAlgorithmException | InvalidKeySpecException | JOSEException | ParseException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 			throw new com.tangpian.am.exception.ParseException();
 		}
 	}
 
-	public static Map<String, Object> parse(String token, String verifyKey, String decryptKey)
+	private static JWEObject encrypt(String encryptKey, SignedJWT signedJWT) throws JOSEException, KeyLengthException {
+		JWEObject jweObject = new JWEObject(
+				new JWEHeader.Builder(JWEAlgorithm.DIR, EncryptionMethod.A128GCM).contentType("JWT").build(),
+				new Payload(signedJWT));
+		jweObject.encrypt(new DirectEncrypter(KeyUtil.keyString2Bytes(encryptKey)));
+		return jweObject;
+	}
+
+	private static SignedJWT sign(TokenSpec tokenSpec, Message message)
+			throws NoSuchAlgorithmException, InvalidKeySpecException, JOSEException {
+		SignedJWT signedJWT = null;
+		switch (tokenSpec.getSignatureAlgorithm()) {
+		case TokenSpec.SIGNATURE_ALGORITHM_RSA:
+			signedJWT = rsaSign(tokenSpec.getSignatureKey(), message);
+			break;
+
+		case TokenSpec.SIGNATURE_ALGORITHM_HMAC:
+			signedJWT = hmacSign(tokenSpec.getSignatureKey(), message);
+			break;
+
+		case TokenSpec.SIGNATURE_ALGORITHM_EC:
+			signedJWT = ecSign(tokenSpec.getSignatureKey(), message);
+			break;
+
+		default:
+			throw new InvalidKeyAlgorithmException();
+		}
+		return signedJWT;
+	}
+
+	private static SignedJWT ecSign(String signatureKey, Message message)
+			throws NoSuchAlgorithmException, InvalidKeySpecException, JOSEException {
+		PKCS8EncodedKeySpec keySpec = new PKCS8EncodedKeySpec(KeyUtil.keyString2Bytes(signatureKey));
+		KeyFactory keyFactory = KeyFactory.getInstance("EC");
+
+		JWSSigner signer = new ECDSASigner((ECPrivateKey) keyFactory.generatePrivate(keySpec));
+
+		SignedJWT signedJWT = new SignedJWT(new JWSHeader(JWSAlgorithm.ES256), build(message));
+
+		signedJWT.sign(signer);
+		return signedJWT;
+	}
+
+	private static SignedJWT hmacSign(String signatureKey, Message message) throws JOSEException {
+		JWSSigner signer = new MACSigner(signatureKey);
+		SignedJWT signedJWT = new SignedJWT(new JWSHeader(JWSAlgorithm.HS256), build(message));
+		signedJWT.sign(signer);
+		return signedJWT;
+	}
+
+	private static SignedJWT rsaSign(String signatureKey, Message message)
+			throws NoSuchAlgorithmException, InvalidKeySpecException, JOSEException {
+		PKCS8EncodedKeySpec keySpec = new PKCS8EncodedKeySpec(KeyUtil.keyString2Bytes(signatureKey));
+		KeyFactory keyFactory = KeyFactory.getInstance("RSA");
+
+		JWSSigner signer = new RSASSASigner(keyFactory.generatePrivate(keySpec));
+
+		SignedJWT signedJWT = new SignedJWT(new JWSHeader(JWSAlgorithm.RS256), build(message));
+
+		signedJWT.sign(signer);
+		return signedJWT;
+	}
+
+	private static <T> T parse2Object(String token, String verifyKey, String decryptKey, Class<T> clazz)
 			throws NoSuchAlgorithmException, InvalidKeySpecException, JOSEException, ParseException {
-		return parse2Claims(token, verifyKey, decryptKey).getClaims();
+		JSONObject jsonObject = (JSONObject) (parse2Claims(token, verifyKey, decryptKey)).getClaim(KEY_DATA);
+		return com.alibaba.fastjson.JSONObject.parseObject(jsonObject.get(KEY_DATA).toString(), clazz);
 	}
 
 	private static JWTClaimsSet parse2Claims(String token, String verifyKey, String decryptKey)
@@ -201,27 +207,23 @@ public class TokenUtil {
 
 	}
 
-	private static JWTClaimsSet build(Map<String, Object> data) {
-		JWTClaimsSet.Builder builder = new JWTClaimsSet.Builder(defaultClaimsSet());
-		for (String key : data.keySet()) {
-			builder.claim(key, data.get(key));
-		}
-
-		return builder.build();
+	private static JWTClaimsSet build(Message message) {
+		return transform(message);
 	}
 
-	private static JWTClaimsSet defaultClaimsSet() {
+	private static JWTClaimsSet transform(Message message) {
 		JWTClaimsSet.Builder builder = new JWTClaimsSet.Builder();
-		Date issueTime = new Date();
+		Date issueTime = message.getIssueTime();
 		Calendar calendar = Calendar.getInstance();
 		calendar.setTime(issueTime);
 		calendar.set(Calendar.DATE, 1);
 		Date expirationTime = calendar.getTime();
 
-		builder.issuer("Tangpian");
+		builder.issuer(message.getIssuer());
 		builder.issueTime(issueTime);
-		builder.claim("version", "1.0");
+		builder.claim(KEY_VERSION, message.getVersion());
 		builder.expirationTime(expirationTime);
+		builder.claim(KEY_DATA, message.getData());
 		return builder.build();
 	}
 
